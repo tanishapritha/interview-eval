@@ -1,0 +1,7 @@
+{
+  "conversation_pass_rate_min": 0.8,
+  "scoring_stddev_max": 0.75,
+  "max_dimension_delta": 1,
+  "latency_p95_ms_max": 5000,
+  "min_repetitions": 3
+}\n

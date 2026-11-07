@@ -1,0 +1,1 @@
+.PHONY: install test lint eval clean\ninstall:\n\tpython -m pip install -e '.[dev]'\ntest:\n\tpytest\nlint:\n\truff check src tests\neval:\n\tinterview-eval run --dataset datasets/golden/demo.jsonl --output reports/latest.json\nclean:\n\trm -f reports/latest.json reports/latest.md\n
