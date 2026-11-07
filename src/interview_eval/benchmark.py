@@ -33,6 +33,7 @@ def validate_model_output(raw: Any, segments: list[dict[str, Any]]) -> dict[str,
         raise ValueError("model response must contain a skills array")
     eligible = {str(segment.get("segment_id")): segment for segment in segments}
     dimensions: dict[str, float] = {}
+    confidence_weights: dict[str, float] = {}
     valid_quotes = 0
     invalid_quotes = 0
     for item in raw["skills"][:20]:
@@ -67,11 +68,15 @@ def validate_model_output(raw: Any, segments: list[dict[str, Any]]) -> dict[str,
                 invalid_quotes += 1
         if verified:
             dimensions[name] = float(score)
+            confidence_weights[name] = float(confidence)
     if not dimensions:
         raise ValueError("no skill score had a verifiable quote from final LiveKit candidate speech")
     return {
         "dimensions": dimensions,
-        "overall": mean(list(dimensions.values())),
+        "overall": (
+            sum(dimensions[name] * confidence_weights[name] for name in dimensions)
+            / sum(confidence_weights.values())
+        ),
         "valid_quotes": valid_quotes,
         "invalid_quotes": invalid_quotes,
     }
