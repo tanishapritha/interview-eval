@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .evaluators import (evaluate_conversation, evaluate_performance, evaluate_reliability,
-                         evaluate_scoring_stability, summarize_performance)
+                         evaluate_scoring_stability, evaluate_shala_session, summarize_performance)
 from .io import load_jsonl
 from .statistics import mean
 
@@ -13,7 +13,7 @@ from .statistics import mean
 def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None) -> dict[str, Any]:
     limits = thresholds or {}
     cases = load_jsonl(dataset)
-    conversations, scoring, reliability, performance = [], [], [], []
+    conversations, scoring, reliability, performance, shala_sessions = [], [], [], [], []
     for case in cases:
         kind = case.get("type")
         if kind == "conversation":
@@ -24,6 +24,8 @@ def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None
             reliability.append(evaluate_reliability(case))
         elif kind == "performance":
             performance.append(evaluate_performance(case))
+        elif kind == "shala_session":
+            shala_sessions.append(evaluate_shala_session(case))
         else:
             raise ValueError(f"Case {case.get('id', '<unknown>')}: unsupported type {kind!r}")
 
@@ -43,6 +45,7 @@ def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None
             values["max_stddev"] <= float(limits.get("scoring_stddev_max", float("inf")))
             for values in stability.values()),
         "reliability": all(r["passed"] for r in reliability),
+        "shala_session_integrity": all(r["passed"] for r in shala_sessions),
         "latency_p95": (summarize_performance(performance)["p95_ms"] <=
                         float(limits.get("latency_p95_ms_max", float("inf")))
                         if performance else True),
@@ -54,9 +57,11 @@ def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None
         "summary": {"passed": all(gates.values()), "gate_results": gates,
                     "conversation_pass_rate": round(conversation_rate, 4),
                     "conversation_cases": len(conversations),
-                    "scoring_cases": len(scoring), "reliability_cases": len(reliability)},
+                    "scoring_cases": len(scoring), "reliability_cases": len(reliability),
+                    "shala_session_cases": len(shala_sessions)},
         "conversation": conversations, "scoring_stability": scoring,
         "stability_summary": stability, "reliability": reliability,
+        "shala_sessions": shala_sessions,
         "performance": {"cases": performance, "summary": summarize_performance(performance)},
     }
 

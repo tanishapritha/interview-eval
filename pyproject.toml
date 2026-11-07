@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "interview-eval"
-version = "0.1.0"
+version = "0.2.0"
 description = "A reproducible evaluation harness for conversational interview agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Tanisha Pritha" }]
-dependencies = []
+dependencies = ["httpx>=0.27,<1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]

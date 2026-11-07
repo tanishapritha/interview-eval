@@ -2,9 +2,7 @@
 
 [![Evaluation CI](https://github.com/tanishapritha/interview-eval/actions/workflows/eval.yml/badge.svg)](https://github.com/tanishapritha/interview-eval/actions/workflows/eval.yml)
 
-A small, reproducible Python evaluation harness for conversational interview agents. It is designed alongside [Interview Shala](https://github.com/tanishapritha/interview-shala), whose voice pipeline uses LiveKit Agents, Deepgram STT, an OpenRouter-compatible LLM, Cartesia TTS, and trusted worker-side transcript ingestion.
-
-**Current scope:** deterministic, offline evaluation of transcript-level conversation checks, repeated-score stability, transcript/scorer schema reliability, and stage latency/token summaries. This is an evaluation foundation, not a claim that a production interviewer scorer has already been integrated.
+A reproducible Python evaluation harness for conversational interview agents, built alongside [Interview Shala](https://github.com/tanishapritha/interview-shala). It checks trusted transcript integrity, score stability, evidence citations, and voice pipeline latency.
 
 ## Quickstart
 
@@ -19,85 +17,79 @@ pytest
 interview-eval run --dataset datasets/golden/demo.jsonl --output reports/latest.json
 ```
 
-No API key, database, or network connection is needed for the offline suite. The demo dataset is synthetic and intentionally small.
+The offline suite needs no API key, database, or network access. Fixtures are synthetic.
 
-## What is evaluated?
+## Evaluate a real Interview Shala session
 
-| Suite | Current behavior |
+Interview Shala exposes an owner-authenticated export endpoint:
+
+`GET /api/v1/sessions/{session_id}/evaluation-export`
+
+It exports only that user's session, includes transcript provenance, and is available after completion. Save the JSON response locally; **do not commit real candidate transcripts or export files to a public repository**.
+
+```bash
+interview-eval import-shala --input shala-session.json --output datasets/local/session.jsonl
+interview-eval run --dataset datasets/local/session.jsonl --output reports/session-integrity.json
+```
+
+The importer preserves source labels. Only final candidate segments with `source=livekit` are considered trusted evidence. Client-submitted transcript segments are never eligible for model scoring.
+
+## Repeat the production-style scorer
+
+The live benchmark calls OpenRouter repeatedly using the same evidence-grounded scoring contract used by Interview Shala. It validates each score against an exact quote from a final trusted candidate segment, then reports per-skill mean, sample standard deviation, min/max, valid and invalid citations, latency, token usage, and deltas against the saved session assessment.
+
+```bash
+# Set OPENROUTER_API_KEY in your shell; never put it in a committed file.
+# Optional: set OPENROUTER_MODEL to pin a different model.
+interview-eval benchmark --dataset datasets/local/session.jsonl --runs 5 \\
+  --temperature 0.1 --output reports/benchmark.json
+```
+
+This makes real provider calls and incurs provider usage. Use a small number of sessions and repetitions first. Benchmark reports contain model scores and timing; keep them private if they relate to real candidate data. The benchmark is a repeated-scorer consistency experiment, not a ground-truth accuracy test. Accuracy and fairness require human-labelled reference scores.
+
+## Evaluation suites
+
+| Suite | Checks |
 | --- | --- |
-| Conversation | Minimum interviewer turns, required terms, exact repeated interviewer turns |
+| Interview Shala integrity | Transcript structure/order, provenance, score ranges, and whether untrusted client speech could be the sole basis for an assessment |
+| Conversation | Minimum interviewer turns, required terms, repeated interviewer turns |
 | Score stability | Per-dimension mean, sample standard deviation, min/max, repetition count |
 | Reliability | Transcript role/text shape and numeric scorer output validation |
+| Evidence validation | Exact quote must exist in the referenced final LiveKit candidate segment |
 | Performance | STT/LLM/TTS stage timing, total latency, P50/P95, token totals |
 
-The checks are intentionally transparent and deterministic. Keyword presence is a lightweight smoke check, **not** a semantic relevance judge. A future semantic evaluator should be calibrated against human annotations before it is used as a release gate.
+Keyword presence is a lightweight smoke check, **not** a semantic relevance judge. Exact quote verification establishes provenance, not whether the quote logically supports the score.
 
-## Dataset format
+## Dataset formats
 
-Each JSONL row is an independent case. Supported `type` values:
+JSONL rows support `conversation`, `scoring`, `reliability`, `performance`, and `shala_session`. See `datasets/golden/demo.jsonl` and `tests` for examples. Keep real candidate data local and de-identified where possible.
 
-- `conversation`: `turns`, `required_terms`, `min_interviewer_questions`, `forbidden_repetition`.
-- `scoring`: `repetitions`, each a mapping from score dimension to numeric score.
-- `reliability`: `transcript.turns` and `scorer_output.dimensions`.
-- `performance`: `stt_ms`, `llm_ms`, `tts_ms`, token counts, and interview duration.
+## Configuration and interpretation
 
-See `datasets/golden/demo.jsonl`. Keep real candidate data out of public fixtures; use synthetic or explicitly consented, de-identified examples.
-
-## Configuration
-
-Edit `configs/thresholds.json`:
-
-- `conversation_pass_rate_min`: minimum fraction of conversation cases passing.
-- `scoring_stddev_max`: maximum allowed per-dimension standard deviation averaged across cases.
-- `min_repetitions`: minimum repeated scoring runs per scoring case.
-- `latency_p95_ms_max`: maximum P95 total stage latency in milliseconds.
-- `max_dimension_delta`: threshold used by report comparison.
-
-The runner writes a JSON report with timestamp, dataset path, case count, per-case outcomes, summary metrics, and gate results. The report timestamp is intentionally recorded; all other inputs are explicit. For byte-for-byte artifact reproducibility, normalize or omit the timestamp in downstream tooling.
+Edit `configs/thresholds.json` for offline release gates. Reports include timestamps, dataset path, case-level outcomes, and gate results. P95 from a tiny fixture set is a smoke metric, not a production SLO. Small repeated samples are descriptive, not conclusive. Provider cost estimation is omitted until a dated rate card is configured.
 
 ## Baseline comparison
-
-The comparison command accepts compact JSON summaries with dimension means:
-
-```json
-{
-  "label": "prompt-v1",
-  "dimension_means": {"technical": 3.8, "communication": 4.1}
-}
-```
 
 ```bash
 interview-eval compare --baseline examples/baseline.json \\
   --candidate examples/candidate.json --max-delta 0.5
 ```
 
-A dimension whose absolute delta exceeds the configured threshold is reported as a regression candidate. A score shift is not automatically evidence of quality loss: review case-level changes and human annotations before release decisions.
-
-## Reproducibility and statistical notes
-
-- Version datasets and evaluator code with Git.
-- Record model/provider, prompt version, temperature, seed, repetition count, and pricing snapshot when adding live adapters.
-- Compare prompt/model versions on the same cases (paired evaluation).
-- Treat small samples as descriptive; the included bootstrap helper uses a fixed seed but does not make an underpowered sample conclusive.
-- P95 from a small fixture set is a smoke metric, not a production SLO.
-- Cost estimation is deliberately not enabled until provider-specific rate cards and token accounting are supplied.
+A score shift is a regression candidate, not proof of quality loss. Compare the same transcripts (paired evaluation) and review case-level changes.
 
 ## CI
 
-GitHub Actions runs pytest and the offline golden evaluation on pushes, pull requests, and manual dispatch. No provider secrets are required. Live model evaluations should be a separate opt-in workflow with pinned model identifiers and explicit spend limits.
+GitHub Actions runs unit tests and the offline golden evaluation on pushes, pull requests, and manual dispatch. No provider secrets are needed in CI. Live benchmarks are opt-in and should be run locally or in a separate secured workflow with explicit spend limits.
 
 ## Roadmap
 
-- [ ] Adapter contract for Interview Shala worker transcripts and evaluator outputs.
-- [ ] Semantic follow-up/relevance judging calibrated against human-labelled cases.
-- [ ] Paired baseline/candidate scoring with confidence intervals and per-case diffs.
-- [ ] Provider-specific STT/LLM/TTS cost accounting with dated rate-card snapshots.
-- [ ] Opt-in live benchmark runner with retries, timeout accounting, and spend caps.
-- [ ] Dimension drift guards based on labelled reference sets.
-
-## Relationship to Interview Shala
-
-Interview Shala currently persists trusted worker-generated transcript turns and maintains a separate trust boundary for client-supplied transcript material. This repo consumes evaluation fixtures rather than reaching into its database or production APIs. The adapter boundary is a planned integration so the harness can be run safely against exported, consented test transcripts.
+- [x] Owner-authenticated Interview Shala session export.
+- [x] Local importer preserving transcript provenance.
+- [x] Repeated OpenRouter scoring benchmark with exact quote validation.
+- [ ] Human-labelled reference set and evaluator calibration.
+- [ ] Paired prompt/model experiment reports with confidence intervals.
+- [ ] Provider-specific dated rate cards and cost-per-interview estimates.
+- [ ] Semantic interviewer follow-up evaluation.
 
 ## License
 

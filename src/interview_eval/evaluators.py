@@ -52,11 +52,95 @@ def evaluate_reliability(case: dict[str, Any]) -> dict[str, Any]:
                 errors.append(f"turn {index}: text must be a non-empty string")
     if not isinstance(output, dict) or not isinstance(output.get("dimensions"), dict):
         errors.append("scorer_output.dimensions must be an object")
-    elif any(not isinstance(value, (int, float)) for value in output["dimensions"].values()):
+    elif any(not isinstance(value, (int, float)) or isinstance(value, bool)
+             for value in output["dimensions"].values()):
         errors.append("scorer dimension values must be numeric")
-    if isinstance(output, dict) and "overall" in output and not isinstance(output["overall"], (int, float)):
+    if isinstance(output, dict) and "overall" in output and (
+        not isinstance(output["overall"], (int, float)) or isinstance(output["overall"], bool)
+    ):
         errors.append("scorer_output.overall must be numeric")
     return {"case_id": case["id"], "passed": not errors, "errors": errors}
+
+
+def evaluate_shala_session(case: dict[str, Any]) -> dict[str, Any]:
+    """Check an owned Interview Shala export without treating client text as evidence."""
+    transcript = case.get("transcript")
+    session = case.get("session")
+    skills = case.get("skill_scores", [])
+    errors: list[str] = []
+    if not isinstance(transcript, list):
+        transcript = []
+        errors.append("transcript must be an array")
+    if not isinstance(session, dict):
+        session = {}
+        errors.append("session must be an object")
+    sequence_numbers = []
+    trusted_candidates = 0
+    client_candidates = 0
+    for index, segment in enumerate(transcript):
+        if not isinstance(segment, dict):
+            errors.append(f"segment {index} must be an object")
+            continue
+        sequence = segment.get("sequence_number")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+            errors.append(f"segment {index} has an invalid sequence number")
+        else:
+            sequence_numbers.append(sequence)
+        if segment.get("speaker") not in {"candidate", "interviewer", "system"}:
+            errors.append(f"segment {index} has an invalid speaker")
+        if not isinstance(segment.get("text"), str) or not segment["text"].strip():
+            errors.append(f"segment {index} has empty text")
+        if not isinstance(segment.get("is_final"), bool):
+            errors.append(f"segment {index} has an invalid finality flag")
+        if segment.get("speaker") == "candidate":
+            if segment.get("source") == "livekit" and segment.get("is_final") is True:
+                trusted_candidates += 1
+            elif segment.get("source") == "client":
+                client_candidates += 1
+    unique_ordered = len(sequence_numbers) == len(set(sequence_numbers)) and sequence_numbers == sorted(sequence_numbers)
+    if not unique_ordered:
+        errors.append("transcript sequence numbers must be unique and ordered")
+    score = session.get("score")
+    score_valid = score is None or (
+        isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 100
+    )
+    if not score_valid:
+        errors.append("session score must be null or between 0 and 100")
+    skills_valid = isinstance(skills, list)
+    if skills_valid:
+        for index, skill in enumerate(skills):
+            if not isinstance(skill, dict):
+                skills_valid = False
+                errors.append(f"skill score {index} must be an object")
+                continue
+            value, maximum = skill.get("score"), skill.get("max_score", 100)
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or isinstance(maximum, bool) or not isinstance(maximum, (int, float))
+                    or maximum <= 0 or not 0 <= value <= maximum):
+                skills_valid = False
+                errors.append(f"skill score {index} is outside its valid range")
+    else:
+        errors.append("skill_scores must be an array")
+    checks = {
+        "transcript_structure": not any("segment" in error or "sequence" in error
+                                        for error in errors),
+        "score_range": score_valid and skills_valid,
+        "no_assessment_from_untrusted_transcript": not (
+            client_candidates > 0 and (score is not None or bool(skills))
+            and trusted_candidates == 0
+        ),
+    }
+    return {
+        "case_id": case["id"],
+        "passed": all(checks.values()),
+        "checks": checks,
+        "errors": errors,
+        "trusted_candidate_segments": trusted_candidates,
+        "untrusted_candidate_segments": client_candidates,
+        "transcript_segments": len(transcript),
+        "score_present": score is not None,
+        "skill_count": len(skills) if isinstance(skills, list) else 0,
+    }
 
 
 def evaluate_performance(case: dict[str, Any]) -> dict[str, Any]:
