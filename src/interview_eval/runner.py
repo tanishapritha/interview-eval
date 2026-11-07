@@ -7,7 +7,7 @@ from typing import Any
 from .evaluators import (evaluate_conversation, evaluate_performance, evaluate_reliability,
                          evaluate_scoring_stability, summarize_performance)
 from .io import load_jsonl
-from .statistics import bootstrap_mean_interval, mean, stdev
+from .statistics import mean
 
 
 def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -32,7 +32,7 @@ def run_evaluation(dataset: str | Path, thresholds: dict[str, Any] | None = None
         for dimension, values in result.get("dimensions", {}).items():
             score_dims.setdefault(dimension, []).append(values["stddev"])
     stability = {dimension: {"mean_stddev": round(mean(values), 4),
-                              "max_stddev": round(max(values),  default=0), "n_cases": len(values)}
+                              "max_stddev": round(max(values, default=0), 4), "n_cases": len(values)}
                  for dimension, values in score_dims.items()}
     conversation_rate = (sum(r["passed"] for r in conversations) / len(conversations)
                          if conversations else 1.0)
