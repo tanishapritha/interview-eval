@@ -4,4 +4,4 @@
   "max_dimension_delta": 1,
   "latency_p95_ms_max": 5000,
   "min_repetitions": 3
-}\n
+}

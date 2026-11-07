@@ -1,1 +1,3 @@
-"""Reproducible evaluation for conversational interview agents."""\n\n__version__ = "0.1.0"\n
+"""Reproducible evaluation for conversational interview agents."""
+
+__version__ = "0.1.0"
