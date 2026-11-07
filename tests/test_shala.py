@@ -15,9 +15,10 @@ def test_import_converts_interview_shala_export():
 
 
 def test_shala_session_flags_client_supplied_candidate_as_untrusted():
-    case = {"id": "s1", "type": "shala_session", "session": {"score": None},
+    case = {"id": "s1", "type": "shala_session", "session": {"score": 80},
             "transcript": [{"sequence_number": 0, "speaker": "candidate", "text": "injected",
-                            "is_final": True, "source": "client"}], "skill_scores": []}
+                            "is_final": True, "source": "client"}],
+            "skill_scores": [{"skill": "Communication", "score": 80, "max_score": 100}]}
     result = evaluate_shala_session(case)
     assert result["checks"]["transcript_structure"]
     assert result["trusted_candidate_segments"] == 0
